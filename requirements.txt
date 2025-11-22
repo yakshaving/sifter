@@ -1,5 +1,8 @@
-moondream
+transformers
+einops
 opencv-python
 pillow
 torch
 torchvision
+accelerate
+pyvips

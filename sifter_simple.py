@@ -11,15 +11,25 @@ This version uses Moondream to describe what it sees.
 Focus: Differentiating pumpkin seeds vs sunflower seeds.
 """
 
+import os
+# CRITICAL: Must disable MPS before importing torch
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+import torch
+# Force PyTorch to use CPU only
+torch.set_default_device("cpu")
+# Disable MPS backend completely
+torch.backends.mps.is_available = lambda: False
+
 import cv2
 import time
-import os
 from PIL import Image
-from moondream import VisionModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Configuration
 WINDOW_NAME = "Seed Sifter - Phase 1 (Simple Mode)"
-MODEL_PATH = "moondream-2b"
+MODEL_ID = "vikhyatk/moondream2"
+MODEL_REVISION = "2025-01-09"
 CAPTURES_DIR = "captures"
 
 # Create captures directory if it doesn't exist
@@ -28,10 +38,16 @@ os.makedirs(CAPTURES_DIR, exist_ok=True)
 class SeedSifter:
     def __init__(self):
         print("🌙 Initializing Seed Sifter...")
-        print("🔄 Loading Moondream model (this may take 10-20 seconds)...")
+        print("🔄 Loading Moondream model...")
+        print("   (First run: downloads ~4GB, then cached for offline use)")
 
-        # Load Moondream model
-        self.model = VisionModel(local_model_path=MODEL_PATH)
+        # Load Moondream model on CPU to avoid device conflicts
+        self.model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            trust_remote_code=True,
+            revision=MODEL_REVISION
+        ).to("cpu")
+        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
         print("✅ Moondream loaded!")
 
         # Initialize camera
@@ -69,7 +85,11 @@ class SeedSifter:
 
         # Run Moondream inference
         try:
-            description = self.model.describe(pil_image)
+            # Encode the image
+            enc_image = self.model.encode_image(pil_image)
+
+            # Ask question about the image
+            description = self.model.answer_question(enc_image, prompt, self.tokenizer)
             return description
         except Exception as e:
             return f"Error during analysis: {str(e)}"
@@ -185,9 +205,11 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         print("   Make sure:")
-        print("   1. Moondream model is downloaded: moondream download moondream-2b")
+        print("   1. Internet connection on FIRST run (to download model)")
         print("   2. Camera permissions are enabled")
         print("   3. All dependencies are installed: pip install -r requirements.txt")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
