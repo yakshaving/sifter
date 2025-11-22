@@ -1,0 +1,5 @@
+moondream
+opencv-python
+pillow
+torch
+torchvision

@@ -1,0 +1,8 @@
+PLACEHOLDER - Replace this file with an actual seed image for testing.
+
+To create one:
+1. Take a photo of pumpkin/sunflower seeds on white paper
+2. Save as sample_seeds.jpg
+3. Use for testing: python test_moondream.py
+
+This file is in .gitignore so you can replace it locally.
