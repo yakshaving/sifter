@@ -35,6 +35,7 @@ WINDOW_NAME = "Seed Sifter - Phase 1 (Simple Mode)"
 MODEL_ID = "vikhyatk/moondream2"
 MODEL_REVISION = "2025-01-09"
 CAPTURES_DIR = "captures"
+CAMERA_INDEX = 1  # 0 = built-in, 1 = external USB camera (Obsbot 4K)
 
 # Create captures directory if it doesn't exist
 os.makedirs(CAPTURES_DIR, exist_ok=True)
@@ -55,7 +56,7 @@ class SeedSifter:
         print("✅ Moondream loaded!")
 
         # Initialize camera
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(CAMERA_INDEX)
         if not self.cap.isOpened():
             raise RuntimeError("❌ Could not open camera!")
 
