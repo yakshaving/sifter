@@ -12,19 +12,23 @@ Focus: Differentiating pumpkin seeds vs sunflower seeds.
 """
 
 import os
-# CRITICAL: Must disable MPS before importing torch
+# Enable MPS fallback for unsupported operations
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import torch
-# Force PyTorch to use CPU only
-torch.set_default_device("cpu")
-# Disable MPS backend completely
-torch.backends.mps.is_available = lambda: False
+# Try to use MPS (Mac GPU) if available, otherwise CPU
+if torch.backends.mps.is_available():
+    device = "mps"
+    print("🚀 Using MPS (Mac GPU) for acceleration")
+else:
+    device = "cpu"
+    print("💻 Using CPU (MPS not available)")
 
 import cv2
 import time
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import threading
 
 # Configuration
 WINDOW_NAME = "Seed Sifter - Phase 1 (Simple Mode)"
@@ -41,12 +45,12 @@ class SeedSifter:
         print("🔄 Loading Moondream model...")
         print("   (First run: downloads ~4GB, then cached for offline use)")
 
-        # Load Moondream model on CPU to avoid device conflicts
+        # Load Moondream model (use GPU if available)
         self.model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             trust_remote_code=True,
             revision=MODEL_REVISION
-        ).to("cpu")
+        ).to(device)
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
         print("✅ Moondream loaded!")
 
@@ -166,7 +170,7 @@ class SeedSifter:
                 break
 
             # Capture and analyze on SPACEBAR
-            if key == 32:  # SPACEBAR
+            if key == 32 and not self.analyzing:  # SPACEBAR (only if not already analyzing)
                 print("\n📸 Capturing frame...")
                 self.analyzing = True
 
@@ -179,17 +183,22 @@ class SeedSifter:
                 # Terminal output
                 print("🔍 Analyzing with Moondream...")
 
-                # Analyze
-                analysis = self.analyze_seeds(frame)
-                self.last_analysis = analysis
-                self.analyzing = False
+                # Analyze in background thread to keep UI responsive
+                def analyze_thread():
+                    analysis = self.analyze_seeds(frame)
+                    self.last_analysis = analysis
+                    self.analyzing = False
 
-                # Print to terminal
-                print("\n" + "="*60)
-                print("ANALYSIS RESULT:")
-                print("="*60)
-                print(analysis)
-                print("="*60 + "\n")
+                    # Print to terminal
+                    print("\n" + "="*60)
+                    print("ANALYSIS RESULT:")
+                    print("="*60)
+                    print(analysis)
+                    print("="*60 + "\n")
+
+                thread = threading.Thread(target=analyze_thread)
+                thread.daemon = True
+                thread.start()
 
         # Cleanup
         self.cap.release()
