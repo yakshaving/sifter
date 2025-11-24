@@ -35,7 +35,7 @@ WINDOW_NAME = "Seed Sifter - Phase 1 (Simple Mode)"
 MODEL_ID = "vikhyatk/moondream2"
 MODEL_REVISION = "2025-01-09"
 CAPTURES_DIR = "captures"
-CAMERA_INDEX = 1  # 0 = built-in, 1 = external USB camera (Obsbot 4K)
+CAMERA_INDEX = 0  # 0 = built-in, 1 = external USB camera (Obsbot 4K) - Try both!
 
 # Create captures directory if it doesn't exist
 os.makedirs(CAPTURES_DIR, exist_ok=True)
@@ -69,39 +69,67 @@ class SeedSifter:
 
         # State
         self.last_analysis = "Press SPACEBAR to analyze seeds..."
+        self.last_detections = []  # Store bounding boxes
         self.analyzing = False
 
     def analyze_seeds(self, frame):
         """
-        Analyze a frame using Moondream.
-        Optimized prompt for seed counting and differentiation.
+        Analyze a frame using Moondream with bounding box detection.
+        Detects seeds and returns both boxes and counts.
         """
         # Convert BGR (OpenCV) to RGB (PIL)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb_frame)
 
-        # Craft a specific prompt for seed analysis
-        prompt = (
-            "Describe the seeds in this image. "
-            "Specifically identify if you see pumpkin seeds (large, white, oval) "
-            "or sunflower seeds (smaller, striped black and white). "
-            "Estimate the count of each type if possible."
-        )
-
-        # Run Moondream inference
+        # Run Moondream inference with bounding box detection
         try:
-            # Encode the image
-            enc_image = self.model.encode_image(pil_image)
+            # Detect seeds in the image
+            result = self.model.detect(pil_image, "seeds")
+            detections = result.get("objects", [])
 
-            # Ask question about the image
-            description = self.model.answer_question(enc_image, prompt, self.tokenizer)
-            return description
+            # Store detections for drawing
+            self.last_detections = detections
+
+            # Count seeds
+            count = len(detections)
+
+            # Create summary message
+            if count == 0:
+                return "No seeds detected"
+            elif count == 1:
+                return "1 seed detected"
+            else:
+                return f"{count} seeds detected"
+
         except Exception as e:
             return f"Error during analysis: {str(e)}"
 
     def draw_ui(self, frame):
-        """Draw UI overlay on frame"""
+        """Draw UI overlay on frame with bounding boxes"""
         height, width = frame.shape[:2]
+
+        # Draw bounding boxes for detected seeds
+        for detection in self.last_detections:
+            # Moondream returns normalized coordinates (0-1)
+            # Format: [x_center, y_center, width, height]
+            if len(detection) >= 4:
+                x_norm, y_norm, w_norm, h_norm = detection[:4]
+
+                # Convert to pixel coordinates
+                box_w = int(w_norm * width)
+                box_h = int(h_norm * height)
+                x1 = int(x_norm * width - box_w / 2)
+                y1 = int(y_norm * height - box_h / 2)
+                x2 = x1 + box_w
+                y2 = y1 + box_h
+
+                # Draw green bounding box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+
+                # Draw small center point
+                center_x = int(x_norm * width)
+                center_y = int(y_norm * height)
+                cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), -1)
 
         # Create semi-transparent overlay for text background
         overlay = frame.copy()
