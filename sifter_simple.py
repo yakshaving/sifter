@@ -35,7 +35,7 @@ WINDOW_NAME = "Seed Sifter - Phase 1 (Simple Mode)"
 MODEL_ID = "vikhyatk/moondream2"
 MODEL_REVISION = "2025-01-09"
 CAPTURES_DIR = "captures"
-CAMERA_INDEX = 0  # 0 = built-in, 1 = external USB camera (Obsbot 4K) - Try both!
+CAMERA_INDEX = 1  # 0 = built-in, 1 = external USB camera (Obsbot 4K)
 
 # Create captures directory if it doesn't exist
 os.makedirs(CAPTURES_DIR, exist_ok=True)
@@ -55,12 +55,22 @@ class SeedSifter:
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
         print("✅ Moondream loaded!")
 
-        # Initialize camera
+        # Initialize camera with validation
+        print(f"🎥 Attempting to open camera {CAMERA_INDEX}...")
         self.cap = cv2.VideoCapture(CAMERA_INDEX)
         if not self.cap.isOpened():
-            raise RuntimeError("❌ Could not open camera!")
+            raise RuntimeError(f"❌ Could not open camera {CAMERA_INDEX}!")
 
-        print("✅ Camera initialized!")
+        # Test if we can actually grab frames
+        ret, test_frame = self.cap.read()
+        if not ret or test_frame is None:
+            self.cap.release()
+            raise RuntimeError(f"❌ Camera {CAMERA_INDEX} opened but cannot grab frames! Try changing CAMERA_INDEX in sifter_simple.py")
+
+        # Get camera resolution
+        width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"✅ Camera {CAMERA_INDEX} initialized! ({width}x{height})")
         print("\n" + "="*60)
         print("CONTROLS:")
         print("  SPACEBAR - Capture and analyze seeds")
