@@ -35,7 +35,7 @@ WINDOW_NAME = "Seed Sifter - Phase 1 (Simple Mode)"
 MODEL_ID = "vikhyatk/moondream2"
 MODEL_REVISION = "2025-01-09"
 CAPTURES_DIR = "captures"
-CAMERA_INDEX = 1  # 0 = built-in, 1 = external USB camera (Obsbot 4K)
+CAMERA_INDEX = 1  # Force Obsbot 4K (Camera 1). Set to 0 for built-in webcam.
 
 # Create captures directory if it doesn't exist
 os.makedirs(CAPTURES_DIR, exist_ok=True)
@@ -55,32 +55,54 @@ class SeedSifter:
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
         print("✅ Moondream loaded!")
 
-        # Initialize camera with validation
-        print(f"🎥 Attempting to open camera {CAMERA_INDEX}...")
-        self.cap = cv2.VideoCapture(CAMERA_INDEX)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"❌ Could not open camera {CAMERA_INDEX}!")
+        # Initialize camera with retry logic
+        camera_index = CAMERA_INDEX if CAMERA_INDEX is not None else 0
+        print(f"🎥 Opening camera {camera_index}...")
 
-        # Test if we can actually grab frames
-        ret, test_frame = self.cap.read()
-        if not ret or test_frame is None:
-            self.cap.release()
-            raise RuntimeError(f"❌ Camera {CAMERA_INDEX} opened but cannot grab frames! Try changing CAMERA_INDEX in sifter_simple.py")
+        max_retries = 5
+        for attempt in range(max_retries):
+            if attempt > 0:
+                print(f"   Retry {attempt}/{max_retries-1}... waiting 2 seconds")
+                time.sleep(2)
+
+            self.cap = cv2.VideoCapture(camera_index)
+            if not self.cap.isOpened():
+                if attempt == max_retries - 1:
+                    raise RuntimeError(f"❌ Could not open camera {camera_index} after {max_retries} attempts!")
+                continue
+
+            # Wait a bit for camera to initialize
+            time.sleep(0.5)
+
+            # Test if we can actually grab frames
+            ret, test_frame = self.cap.read()
+            if ret and test_frame is not None:
+                print(f"✅ Camera {camera_index} connected on attempt {attempt + 1}")
+                break
+            else:
+                self.cap.release()
+                if attempt == max_retries - 1:
+                    raise RuntimeError(f"❌ Camera {camera_index} opened but cannot grab frames after {max_retries} attempts!")
+
+        if test_frame is None:
+            raise RuntimeError(f"❌ Failed to initialize camera {camera_index}")
 
         # Get camera resolution
         width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        print(f"✅ Camera {CAMERA_INDEX} initialized! ({width}x{height})")
+        print(f"✅ Camera {camera_index} initialized! ({width}x{height})")
         print("\n" + "="*60)
         print("CONTROLS:")
         print("  SPACEBAR - Capture and analyze seeds")
+        print("  c - Switch camera (toggle between 0 and 1)")
         print("  q - Quit")
         print("="*60 + "\n")
 
         # State
-        self.last_analysis = "Press SPACEBAR to analyze seeds..."
+        self.last_analysis = "Press SPACEBAR to analyze seeds... Press 'c' to switch camera"
         self.last_detections = []  # Store bounding boxes
         self.analyzing = False
+        self.current_camera = camera_index
 
     def analyze_seeds(self, frame):
         """
@@ -207,6 +229,24 @@ class SeedSifter:
             if key == ord('q'):
                 print("\n👋 Shutting down...")
                 break
+
+            # Switch camera on 'c'
+            if key == ord('c'):
+                print("\n🔄 Switching camera...")
+                self.cap.release()
+                new_camera = 1 if self.current_camera == 0 else 0
+                self.cap = cv2.VideoCapture(new_camera)
+                time.sleep(0.5)
+                ret, test = self.cap.read()
+                if ret and test is not None:
+                    self.current_camera = new_camera
+                    width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    print(f"✅ Switched to camera {new_camera} ({width}x{height})")
+                    self.last_analysis = f"Now using camera {new_camera} ({width}x{height})"
+                else:
+                    print(f"❌ Camera {new_camera} not available, staying on camera {self.current_camera}")
+                    self.cap = cv2.VideoCapture(self.current_camera)
 
             # Capture and analyze on SPACEBAR
             if key == 32 and not self.analyzing:  # SPACEBAR (only if not already analyzing)
