@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-Seed Sifter is an educational AI-powered seed identification system that uses Mac webcam + Moondream vision AI for offline classification of seeds (pumpkin vs sunflower). Built with Python, OpenCV, and Hugging Face Transformers for STEM education and archaeology simulations.
+Seed Sifter is an educational computer vision seed identification system that uses Mac webcam + OpenCV color detection for real-time classification of seeds (pumpkin vs sunflower). Built with Python and OpenCV for STEM education and archaeology simulations. Fast, lightweight, and works completely offline.
 
 ## Development Commands
 
@@ -13,89 +13,114 @@ Seed Sifter is an educational AI-powered seed identification system that uses Ma
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies
+# Install dependencies (lightweight - only OpenCV and NumPy)
 pip install -r requirements.txt
 
-# Download Moondream model (4GB, one-time, then works offline)
-# Uses Hugging Face transformers - no separate moondream CLI tool needed
+# No model downloads needed - uses OpenCV color detection!
 ```
 
 ### Running the Application
 ```bash
-# IMPORTANT: Always activate venv first
+# Option 1: Use the launcher script (recommended)
+./run.sh
+
+# Option 2: Manual run
 source venv/bin/activate
-
-# Test camera access
-python test_camera.py
-
-# Test Moondream model (works offline after initial download)
-python test_moondream.py
-
-# Run main application (Phase 1 - Simple Mode)
 python sifter_simple.py
+
+# Test camera access (if having issues)
+python test_camera.py
 ```
+
+### Controls
+- **SPACEBAR**: Capture and analyze current frame
+- **c**: Switch camera (toggle between 0 and 1)
+- **q**: Quit application
 
 ### Testing & Validation
 ```bash
-# No formal test suite yet - use these for validation:
-python test_camera.py      # Verify camera permissions and access
-python test_moondream.py   # Test AI model inference (offline)
+# Verify camera access
+python test_camera.py
 
-# Manual testing: Run main app and press SPACEBAR to capture/analyze
+# Manual testing tips:
+# 1. Use DARK background for best results
+# 2. Good lighting is important
+# 3. Spread seeds out (avoid overlapping)
+# 4. Press SPACEBAR to capture and analyze
 ```
 
 ## Architecture & Code Structure
 
 ### Core Components
-- **sifter_simple.py**: Main application (Phase 1) - live camera feed with Moondream analysis
-  - SeedSifter class handles camera, model loading, UI rendering, and capture logic
-  - Uses Hugging Face transformers directly (no separate moondream package)
-  - Forces CPU-only inference to avoid MPS device conflicts on Mac
+- **sifter_simple.py**: Main application - live camera feed with OpenCV color detection
+  - SeedSifter class handles camera, detection algorithm, UI rendering, and capture logic
+  - Uses HSV color space for seed type differentiation
+  - Real-time performance (~instant detection, no AI model latency)
+  - Includes retry logic for camera initialization
+  - Threaded analysis to keep UI responsive
 
 ### Key Technical Decisions
-1. **Offline-First**: Downloads Moondream2 model from Hugging Face on first run, then works completely offline
-2. **CPU-Only Inference**: Disabled MPS/GPU to avoid PyTorch device conflicts on Mac
-3. **Model Loading**: Uses AutoModelForCausalLM from transformers with trust_remote_code=True
-4. **UI Pattern**: OpenCV for both camera capture and UI overlay (no separate GUI framework)
+1. **Color-Based Detection**: Uses HSV thresholds instead of AI for speed and simplicity
+2. **Real-Time Processing**: Instant feedback (< 100ms) vs 3-5 sec with AI models
+3. **Background Dependency**: Works best with dark backgrounds for sunflower seeds
+4. **No External Models**: Self-contained, no downloads or internet required
+5. **UI Pattern**: OpenCV for both camera capture and UI overlay (no separate GUI framework)
 
-### Model Configuration
-- Model ID: "vikhyatk/moondream2"
-- Revision: "2025-01-09"
-- Device: CPU only (MPS disabled via environment variables)
-- Inference time: 3-5 seconds per image on typical Mac
+### Detection Algorithm
+- **Pumpkin Seeds**: HSV range `(20, 40, 40)` to `(90, 255, 255)` - detects green/yellow high-saturation
+- **Sunflower Seeds**: HSV range `(5, 30, 80)` to `(25, 120, 200)` - detects tan/beige medium-saturation
+- **Filtering**: Morphological operations (erosion/dilation) to reduce noise
+- **Validation**: Area constraints (300-40000 pixels) and aspect ratio checks (0.25-4.0)
+- **Performance**: Processes full frames in real-time
 
 ### Development Phases
-- **Phase 1** (Current): Simple description mode - natural language output
-- **Phase 2** (Stub): Counting mode - parse counts from descriptions
-- **Phase 3** (Planned): Bounding boxes - visual detection overlays
+- **Phase 1** (Current): OpenCV color detection with counting and bounding boxes
+- **Phase 2** (Optional): AI-enhanced classification with Moondream (test_moondream.py exists)
+- **Phase 3** (Planned): Advanced segmentation with SAM2 or similar
 
 ## Important Implementation Notes
 
-### Environment Setup Requirements
-- MUST set `PYTORCH_ENABLE_MPS_FALLBACK="1"` before importing torch
-- MUST disable MPS backend: `torch.backends.mps.is_available = lambda: False`
-- These are critical to prevent device allocation errors on Mac
-
-### Camera Permissions
+### Camera Setup
 - Terminal needs camera access in System Settings → Privacy & Security → Camera
 - Camera conflicts can occur with Zoom/FaceTime - close other camera apps
+- Uses retry logic (5 attempts with 2-second delays) for robust initialization
+- Supports camera switching with 'c' key (toggles between index 0 and 1)
 
-### Model Loading Pattern
-```python
-# Critical order of operations:
-1. Set environment variables BEFORE any imports
-2. Import torch and disable MPS
-3. Load model with .to("cpu") explicitly
-4. Use trust_remote_code=True for Moondream
-```
+### Detection Best Practices
+- **Background**: Use DARK background for best sunflower seed detection
+- **Lighting**: Good, even lighting improves accuracy
+- **Seed Placement**: Spread seeds out to avoid overlapping
+- **Surface**: Contrasting surface helps (dark fabric, black paper)
+
+### Performance Characteristics
+- **Detection Speed**: Near-instant (< 100ms per frame)
+- **Memory Usage**: Minimal (~100MB vs 6GB for AI models)
+- **Accuracy**: Color-based (good for distinct seed types)
+- **Threading**: Analysis runs in background thread to keep UI responsive
 
 ### Error Handling Focus
 - Camera permission errors → Guide to System Settings
-- Model download failures → Check internet on first run
-- Slow inference → Expected (3-5 sec), suggest M1/M2/M3 for better performance
+- Camera initialization failures → Automatic retry with feedback
+- Empty detections → Suggest background/lighting adjustments
 
 ## File Purposes
-- **requirements.txt**: Core dependencies (transformers, opencv-python, torch, etc.)
+- **sifter_simple.py**: Main OpenCV-based detection application (active)
+- **sifter_simple_commented.py**: Heavily commented version for learning
+- **test_camera.py**: Camera validation utility
+- **test_moondream.py**: AI model testing (optional alternative approach)
+- **run.sh**: Launcher script with environment setup
+- **requirements.txt**: Minimal dependencies (opencv-python, numpy)
 - **captures/**: Auto-created directory for saved analysis images
-- **sample_seeds.jpg**: Test image for model validation without camera
-- **test_*.py**: Validation scripts for camera and model components
+- **sample_seeds.jpg**: Test image for validation
+- **CLAUDE.md**: This file - guidance for Claude Code
+- **codebase_analysis.md**: Comprehensive project analysis
+
+## Alternative Implementations
+- **Moondream AI** (test_moondream.py): Slower but more flexible, uses natural language
+  - Requires 4GB model download
+  - 3-5 second inference time
+  - More accurate descriptions but overkill for simple counting
+- **Current OpenCV** (sifter_simple.py): Fast, lightweight, real-time
+  - No downloads required
+  - Instant results
+  - Best for educational demonstrations
