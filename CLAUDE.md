@@ -3,7 +3,9 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-Seed Sifter is an educational computer vision seed identification system that uses Mac webcam + OpenCV color detection for real-time classification of seeds (pumpkin vs sunflower). Built with Python and OpenCV for STEM education and archaeology simulations. Fast, lightweight, and works completely offline.
+Seed Sifter is an educational computer vision seed identification system that uses Mac webcam + AI vision model (Moondream) for accurate classification of seeds (pumpkin vs sunflower). Built with Python, OpenCV for camera capture, and Moondream AI for semantic understanding. Works completely offline after initial model download (~4GB).
+
+**Key Innovation**: Separates camera capture (OpenCV) from AI analysis (Moondream/PyTorch) to avoid threading conflicts while providing accurate counts that ignore wood grain false positives.
 
 ## Development Commands
 
@@ -13,27 +15,50 @@ Seed Sifter is an educational computer vision seed identification system that us
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies (lightweight - only OpenCV and NumPy)
+# Install dependencies (includes transformers, torch, opencv)
 pip install -r requirements.txt
 
-# No model downloads needed - uses OpenCV color detection!
+# First run will download Moondream model (~4GB, then cached)
 ```
 
 ### Running the Application
+
+**RECOMMENDED**: Use count_seeds.py for accurate AI-based counting:
 ```bash
-# Option 1: Use the launcher script (recommended)
+# Interactive mode - shows live preview, press SPACEBAR to capture & analyze
+source venv/bin/activate
+python count_seeds.py
+
+# Auto mode - captures after 3 seconds, no interaction needed
+python count_seeds.py --auto
+```
+
+**Alternative**: Use sifter_simple.py for real-time OpenCV color detection (fast but less accurate on wood backgrounds):
+```bash
+# Option 1: Use the launcher script
 ./run.sh
 
 # Option 2: Manual run
 source venv/bin/activate
 python sifter_simple.py
-
-# Test camera access (if having issues)
-python test_camera.py
 ```
 
-### Controls
+**Post-Analysis**: Analyze previously captured images:
+```bash
+# Analyze most recent capture
+python analyze_capture.py
+
+# Analyze specific capture
+python analyze_capture.py captures/capture_1234567890.jpg
+```
+
+### Controls (count_seeds.py)
+- **SPACEBAR**: Capture image and start AI analysis
+- **q**: Quit without capturing
+
+### Controls (sifter_simple.py)
 - **SPACEBAR**: Capture and analyze current frame
+- **m**: Toggle detection mode (Watershed / OpenCV)
 - **c**: Switch camera (toggle between 0 and 1)
 - **q**: Quit application
 
@@ -66,19 +91,112 @@ python test_camera.py
 4. **No External Models**: Self-contained, no downloads or internet required
 5. **UI Pattern**: OpenCV for both camera capture and UI overlay (no separate GUI framework)
 
-### Detection Algorithm
+### Detection Algorithms
+
+The application supports three detection modes (cycle with 'M' key):
+
+#### 1. OpenCV Color Detection Mode (Default)
+**Traditional approach: Direct color-based detection**
 - **Pumpkin Seeds**: HSV range `(20, 40, 40)` to `(90, 255, 255)` - detects green/yellow high-saturation
-- **Sunflower Seeds**: HSV range `(5, 30, 80)` to `(25, 120, 200)` - detects tan/beige medium-saturation
+- **Sunflower Seeds**: HSV range `(6, 35, 85)` to `(22, 110, 190)` - detects tan/beige
 - **Filtering**: Morphological operations (erosion/dilation) to reduce noise
-- **Validation**: Area constraints (300-40000 pixels) and aspect ratio checks (0.25-4.0)
-- **Performance**: Processes full frames in real-time
+- **Validation**:
+  - Area constraints: 400-40000 pixels
+  - Aspect ratio: 0.25-4.0
+  - Solidity filter: > 0.65 (area/convex_hull_area) to reject irregular shapes
+- **Advantages**: Fastest, real-time feedback, shows bounding boxes
+- **Best for**: Well-separated seeds, quick preview
+- **Limitations**: Struggles with overlapping seeds, wood grain false positives
+- **Performance**: < 100ms per frame
+
+#### 2. Watershed Segmentation Mode
+**Hybrid approach: Instance segmentation + color classification**
+- Uses distance transform to locate seed centers
+- Applies watershed algorithm to separate touching/overlapping seeds
+- Classifies each separated segment by dominant color (pumpkin vs sunflower)
+- **Advantages**: Better at separating clustered seeds
+- **Best for**: Dense seed arrangements, overlapping seeds
+- **Limitations**: May still have false positives from wood grain
+- **Performance**: ~100-200ms per frame
+
+#### 3. Moondream AI Mode (Most Accurate - Separate Script)
+**AI vision model: Semantic understanding via count_seeds.py**
+- Uses Moondream vision-language model for seed counting
+- Asks AI to count and identify seeds in natural language
+- Model auto-downloads on first use (~4GB, then cached locally)
+- Works completely offline after initial download
+- **Advantages**: Most accurate, semantic understanding, no false positives from wood grain
+- **Best for**: Final accurate counts, complex seed arrangements, wood backgrounds
+- **Limitations**: Slower (3-5 seconds), requires separate capture step, requires model download
+- **Performance**: 3-5 seconds for analysis (after capture)
+- **Note**: First use requires internet for model download; subsequent uses work offline
+- **Architecture**: Separate from sifter_simple.py to avoid PyTorch/OpenCV threading conflicts
 
 ### Development Phases
-- **Phase 1** (Current): OpenCV color detection with counting and bounding boxes
-- **Phase 2** (Optional): AI-enhanced classification with Moondream (test_moondream.py exists)
-- **Phase 3** (Planned): Advanced segmentation with SAM2 or similar
+- **Phase 1** (Complete): OpenCV color detection with counting and bounding boxes
+- **Phase 2** (Complete): Watershed segmentation for overlapping seeds
+- **Phase 3** (Current): Moondream AI for accurate semantic counting via count_seeds.py
+- **Future**: Advanced segmentation with SAM2 or similar (if needed)
 
 ## Important Implementation Notes
+
+### Recent Detection Improvements (2025-11-29)
+
+#### Phase 1: Color Detection Tuning
+Fixed over-counting issue where wood grain and background textures caused 70+ false positives:
+
+**The Problem**: Initial testing showed 106 detections when only ~15-20 seeds were present. Wood grain texture was being detected as sunflower seeds due to similar color ranges.
+
+**Tuning Process**:
+- **Attempt 1** (too strict): min_area=1000, HSV `(8, 50, 100)-(20, 100, 180)`, solidity > 0.7
+  - Result: Under-detection, no sunflower seeds found
+- **Attempt 2** (still under-counting): min_area=600, HSV `(6, 35, 85)-(22, 110, 190)`, solidity > 0.6
+  - Result: Only 15 pumpkin seeds detected when 40-60 visible, missing most individual seeds
+- **Attempt 3** (balanced but limited): min_area=400, solidity > 0.65
+  - Result: Better detection but still struggled with overlapping seeds and wood grain
+
+**Core Challenge**: Pure color-based detection cannot reliably separate overlapping seeds or distinguish wood grain from tan seeds.
+
+#### Phase 2: Watershed Hybrid Approach
+**Solution**: Added watershed segmentation mode to solve overlapping seed and false positive issues:
+
+**How It Works**:
+1. Creates combined mask of all seed-colored regions (both pumpkin and sunflower)
+2. Uses distance transform to find individual seed centers
+3. Applies watershed algorithm to separate touching/overlapping seeds into distinct segments
+4. Classifies each segment by dominant color (pumpkin vs sunflower)
+
+**Result**: Improved separation of touching seeds but still had wood grain issues.
+
+#### Phase 3: Moondream AI Solution (Current Recommended Approach)
+**Solution**: Created separate capture-then-analyze workflow to avoid PyTorch/OpenCV threading conflicts:
+
+**Why Moondream**:
+- Color-based methods (OpenCV and Watershed) cannot distinguish wood grain from tan seeds
+- AI can semantically understand what a seed looks like vs wood texture
+- Natural language approach: asks AI to count seeds directly
+- Works offline after initial model download (~4GB)
+
+**Architecture Decision - Separation of Concerns**:
+Initial attempt to integrate Moondream into sifter_simple.py caused segmentation faults (exit code 139). Root cause: PyTorch creates background threads that conflict with OpenCV's `cv2.waitKey()` GUI event loop.
+
+**Solution**: Separate scripts:
+1. **count_seeds.py** (recommended): Captures with OpenCV, closes GUI, then analyzes with Moondream
+2. **analyze_capture.py**: Analyzes previously saved captures with Moondream
+3. **sifter_simple.py**: Real-time OpenCV/Watershed detection (fast but less accurate)
+
+**How count_seeds.py Works**:
+```
+1. Opens camera with OpenCV
+2. Shows live preview, waits for SPACEBAR
+3. Saves image to captures/
+4. Closes OpenCV completely (frees GUI thread)
+5. Loads Moondream model on CPU (no MPS/GPU conflicts)
+6. Analyzes saved image with AI
+7. Parses and displays accurate counts
+```
+
+**Result**: Accurate AI-based counting (20-30 seeds) vs color detection (100+ false positives from wood grain).
 
 ### Camera Setup
 - Terminal needs camera access in System Settings → Privacy & Security → Camera

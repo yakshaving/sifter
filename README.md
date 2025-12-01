@@ -12,24 +12,23 @@ Perfect for:
 
 ---
 
-## 🎯 Current Status: Phase 1 (Simple Mode)
+## 🎯 Current Status: Phase 3 (AI-Powered Counting)
 
 **What works now:**
-- ✅ Live webcam feed
+- ✅ Live webcam feed with preview
 - ✅ Press spacebar to capture and analyze
-- ✅ Moondream describes seeds in natural language
-- ✅ Works 100% offline (after initial setup)
-- ✅ Differentiates pumpkin seeds vs sunflower seeds
+- ✅ Moondream AI counts seeds accurately (no wood grain false positives!)
+- ✅ Works 100% offline (after initial model download)
+- ✅ Differentiates pumpkin seeds (green) vs sunflower seeds (tan/beige)
+- ✅ Single-command workflow: capture + analyze
+- ✅ Real-time OpenCV detection (fast but less accurate)
+- ✅ Watershed segmentation for overlapping seeds
 
-**Coming in Phase 2:**
-- Count parsing and scoreboard
-- Multi-capture session tracking
-- Simple game mode
-
-**Coming in Phase 3:**
-- Bounding boxes around individual seeds
-- Color-coded by seed type
-- Interactive seed details
+**Implementation Highlights:**
+- Separate capture/analysis scripts to avoid PyTorch/OpenCV threading conflicts
+- Three detection modes: OpenCV (fast), Watershed (separates touching seeds), Moondream (most accurate)
+- Automatic count parsing and ratio calculations
+- Saves all captures for later re-analysis
 
 ---
 
