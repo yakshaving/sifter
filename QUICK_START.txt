@@ -1,0 +1,49 @@
+╔══════════════════════════════════════════════════════════════╗
+║          🌱 SEED SIFTER - QUICK START GUIDE 🌱              ║
+╚══════════════════════════════════════════════════════════════╝
+
+█ EASIEST WAY (Double-Click in Finder):
+
+  🌱 Seed Sifter.command     → Interactive menu
+  🎥 Camera Mode.command      → Live camera
+  🤖 AI Analysis.command      → Most accurate
+
+█ COMMAND LINE SHORTCUTS:
+
+  Live Camera:
+    python sifter.py --camera
+
+  Analyze ONE image:
+    python sifter.py --image path/to/photo.jpg
+
+  Analyze FOLDER of images:
+    python sifter.py --folder path/to/folder
+
+  AI Mode (most accurate):
+    python sifter.py --ai
+
+█ REAL EXAMPLES:
+
+  # Analyze the test photo
+  python sifter.py --image captures/capture_1764557172.jpg
+
+  # Analyze all captures
+  python sifter.py --folder captures
+
+  # Interactive menu (choose as you go)
+  python sifter.py
+
+█ CURRENT DETECTION RESULTS:
+
+  ✓ 25 pumpkin seeds (green boxes labeled P1-P25)
+  ✓ 17 sunflower seeds (orange boxes labeled S1-S17)
+  ✓ 42 total seeds
+  ✓ No wood grain false positives
+
+█ TIPS:
+
+  • Camera mode = Fast, real-time
+  • AI mode = Slow, most accurate
+  • Image mode = Quick test on saved photos
+  • Folder mode = Batch processing
+

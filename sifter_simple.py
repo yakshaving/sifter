@@ -25,6 +25,67 @@ CAMERA_INDEX = 0  # Built-in webcam. Set to 1 for external camera.
 # Create captures directory if it doesn't exist
 os.makedirs(CAPTURES_DIR, exist_ok=True)
 
+def separate_overlapping_seeds(contour, mask, min_area, max_single_seed_area=3000):
+    """
+    Separate overlapping seeds using watershed algorithm.
+    Returns list of individual seed bounding boxes.
+    """
+    # If contour is small enough to be a single seed, return as-is
+    area = cv2.contourArea(contour)
+    if area < max_single_seed_area:
+        x, y, w, h = cv2.boundingRect(contour)
+        return [(x, y, w, h)]
+
+    # Create a mask for this specific contour
+    contour_mask = np.zeros(mask.shape, dtype=np.uint8)
+    cv2.drawContours(contour_mask, [contour], -1, 255, -1)
+
+    # Distance transform to find seed centers
+    dist_transform = cv2.distanceTransform(contour_mask, cv2.DIST_L2, 5)
+
+    # Find local maxima (seed centers)
+    # Use adaptive threshold based on the max distance
+    max_dist = dist_transform.max()
+    threshold = max_dist * 0.4  # Seeds centers should be at least 40% of max distance
+    _, sure_fg = cv2.threshold(dist_transform, threshold, 255, cv2.THRESH_BINARY)
+    sure_fg = sure_fg.astype(np.uint8)
+
+    # Find individual seed markers
+    num_labels, markers = cv2.connectedComponents(sure_fg)
+
+    # If we only found one component, return original contour
+    if num_labels <= 2:  # 1 background + 1 seed
+        x, y, w, h = cv2.boundingRect(contour)
+        return [(x, y, w, h)]
+
+    # Apply watershed
+    markers = markers + 1  # Add 1 so background is not 0
+    markers[contour_mask == 0] = 0  # Mark background as 0
+
+    # Create a 3-channel image for watershed
+    contour_region = cv2.cvtColor(contour_mask, cv2.COLOR_GRAY2BGR)
+    markers = cv2.watershed(contour_region, markers)
+
+    # Extract bounding boxes for each separated seed
+    separated_boxes = []
+    for label in range(2, num_labels + 1):  # Skip background (1) and border (-1)
+        seed_mask = np.uint8(markers == label) * 255
+        seed_contours, _ = cv2.findContours(seed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for sc in seed_contours:
+            seed_area = cv2.contourArea(sc)
+            if seed_area >= min_area:
+                x, y, w, h = cv2.boundingRect(sc)
+                separated_boxes.append((x, y, w, h))
+
+    # If separation failed, return original
+    if not separated_boxes:
+        x, y, w, h = cv2.boundingRect(contour)
+        return [(x, y, w, h)]
+
+    return separated_boxes
+
+
 class SeedSifter:
     def __init__(self):
         print("🌱 Initializing Seed Sifter...")
@@ -84,54 +145,85 @@ class SeedSifter:
         height, width = frame.shape[:2]
 
         detections = []
-        min_area = 300
+        min_area_pumpkin = 400  # Moderate threshold for pumpkin
+        min_area_sunflower = 500  # Tuned to filter wood grain
         max_area = 40000
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
         # --- PUMPKIN SEEDS: Green/yellow, high saturation ---
-        # This works on any background
-        mask_pumpkin = cv2.inRange(hsv, (20, 40, 40), (90, 255, 255))
-        mask_pumpkin = cv2.erode(mask_pumpkin, kernel, iterations=2)
-        mask_pumpkin = cv2.dilate(mask_pumpkin, kernel, iterations=1)
+        mask_pumpkin = cv2.inRange(hsv, (22, 45, 45), (88, 255, 255))
+        mask_pumpkin = cv2.erode(mask_pumpkin, kernel, iterations=1)
+        mask_pumpkin = cv2.dilate(mask_pumpkin, kernel, iterations=2)
 
         contours, _ = cv2.findContours(mask_pumpkin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
             area = cv2.contourArea(contour)
-            if min_area < area < max_area:
-                x, y, w, h = cv2.boundingRect(contour)
-                ar = w / h if h > 0 else 0
-                if 0.25 < ar < 4.0:
-                    detections.append({
-                        'x': x, 'y': y, 'w': w, 'h': h,
-                        'area': area, 'type': 'pumpkin', 'color': (0, 255, 0)
-                    })
+            if min_area_pumpkin < area < max_area:
+                # Calculate solidity to filter irregular shapes (wood grain)
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                solidity = area / hull_area if hull_area > 0 else 0
+
+                # Use watershed to separate overlapping seeds
+                separated_boxes = separate_overlapping_seeds(contour, mask_pumpkin, min_area_pumpkin)
+
+                for (x, y, w, h) in separated_boxes:
+                    ar = w / h if h > 0 else 0
+
+                    # More strict filtering
+                    if 0.3 < ar < 3.5 and solidity > 0.65:
+                        detections.append({
+                            'x': x, 'y': y, 'w': w, 'h': h,
+                            'area': area, 'type': 'pumpkin', 'color': (0, 255, 0)
+                        })
 
         # --- SUNFLOWER SEEDS: Tan/beige ---
-        # Only works well on dark background; on white counter they blend in
-        # Detect by: low-medium saturation, medium value, warm hue
-        mask_sunflower = cv2.inRange(hsv, (5, 30, 80), (25, 120, 200))
+        # Uses proximity filter to avoid wood grain false positives
+        # Relaxed HSV range to catch more sunflower seeds
+        mask_sunflower = cv2.inRange(hsv, (5, 35, 85), (24, 110, 190))
         mask_sunflower = cv2.erode(mask_sunflower, kernel, iterations=1)
-        mask_sunflower = cv2.dilate(mask_sunflower, kernel, iterations=1)
+        mask_sunflower = cv2.dilate(mask_sunflower, kernel, iterations=2)
 
         contours, _ = cv2.findContours(mask_sunflower, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
             area = cv2.contourArea(contour)
-            if min_area < area < max_area:
-                x, y, w, h = cv2.boundingRect(contour)
-                ar = w / h if h > 0 else 0
-                if 0.25 < ar < 4.0:
-                    # Make sure we're not double-counting (check overlap with pumpkin)
-                    cx, cy = x + w//2, y + h//2
-                    is_overlap = False
-                    for d in detections:
-                        if (d['x'] < cx < d['x']+d['w'] and d['y'] < cy < d['y']+d['h']):
-                            is_overlap = True
-                            break
-                    if not is_overlap:
-                        detections.append({
-                            'x': x, 'y': y, 'w': w, 'h': h,
-                            'area': area, 'type': 'sunflower', 'color': (0, 165, 255)
-                        })
+            if min_area_sunflower < area < max_area:
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                solidity = area / hull_area if hull_area > 0 else 0
+
+                # Use watershed to separate overlapping seeds
+                separated_boxes = separate_overlapping_seeds(contour, mask_sunflower, min_area_sunflower)
+
+                for (x, y, w, h) in separated_boxes:
+                    ar = w / h if h > 0 else 0
+
+                    # Relaxed solidity threshold from 0.72 to 0.68
+                    if 0.4 < ar < 3.0 and solidity > 0.68:
+                        # Check overlap with pumpkin
+                        cx, cy = x + w//2, y + h//2
+                        is_overlap = False
+                        for d in detections:
+                            if (d['x'] < cx < d['x']+d['w'] and d['y'] < cy < d['y']+d['h']):
+                                is_overlap = True
+                                break
+
+                        if not is_overlap:
+                            # Proximity filter - relaxed from 150 to 200 pixels
+                            min_distance = float('inf')
+                            for d in detections:
+                                if d['type'] == 'pumpkin':
+                                    d_center_x = d['x'] + d['w'] // 2
+                                    d_center_y = d['y'] + d['h'] // 2
+                                    distance = ((cx - d_center_x) ** 2 + (cy - d_center_y) ** 2) ** 0.5
+                                    min_distance = min(min_distance, distance)
+
+                            # Only accept if within 200 pixels of a pumpkin seed
+                            if min_distance < 200:
+                                detections.append({
+                                    'x': x, 'y': y, 'w': w, 'h': h,
+                                    'area': area, 'type': 'sunflower', 'color': (0, 165, 255)
+                                })
 
         return detections
 
@@ -180,7 +272,10 @@ class SeedSifter:
         """Draw UI overlay on frame with bounding boxes"""
         height, width = frame.shape[:2]
 
-        # Draw bounding boxes
+        # Draw bounding boxes with numbered labels
+        pumpkin_idx = 0
+        sunflower_idx = 0
+
         for detection in self.last_detections:
             try:
                 if not isinstance(detection, dict):
@@ -191,16 +286,36 @@ class SeedSifter:
                 x_max = detection.get('x_max', 0)
                 y_max = detection.get('y_max', 0)
                 color = detection.get('color', (0, 255, 0))
+                seed_type = detection.get('type', 'unknown')
 
                 x1 = int(x_min * width)
                 y1 = int(y_min * height)
                 x2 = int(x_max * width)
                 y2 = int(y_max * height)
 
+                # Draw rectangle and center dot
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
                 center_x = (x1 + x2) // 2
                 center_y = (y1 + y2) // 2
                 cv2.circle(frame, (center_x, center_y), 5, color, -1)
+
+                # Add numbered label
+                if seed_type == 'pumpkin':
+                    pumpkin_idx += 1
+                    label = f"P{pumpkin_idx}"
+                elif seed_type == 'sunflower':
+                    sunflower_idx += 1
+                    label = f"S{sunflower_idx}"
+                else:
+                    label = "?"
+
+                # Draw label background and text
+                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                label_y = max(y1 - 5, 20)  # Don't go off-screen
+                cv2.rectangle(frame, (x1, label_y - 20), (x1 + label_size[0] + 10, label_y), color, -1)
+                cv2.putText(frame, label, (x1 + 5, label_y - 5),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+
             except Exception as e:
                 print(f"Warning: Could not draw detection: {e}")
                 continue
