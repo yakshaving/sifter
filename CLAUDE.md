@@ -18,10 +18,20 @@ source venv/bin/activate
 # Install dependencies (includes transformers, torch, opencv)
 pip install -r requirements.txt
 
-# First run will download Moondream model (~4GB, then cached)
+# Download Moondream model (one-time, ~4GB, then cached)
+moondream download moondream-2b
 ```
 
 ### Running the Application
+
+**Unified Interface**: Interactive menu with all modes:
+```bash
+python sifter.py                    # Interactive menu
+python sifter.py --camera           # Live camera mode
+python sifter.py --image <path>     # Analyze image file
+python sifter.py --folder <path>    # Analyze folder of images
+python sifter.py --ai               # AI analysis with Moondream
+```
 
 **RECOMMENDED**: Use count_seeds.py for accurate AI-based counting:
 ```bash
@@ -50,6 +60,9 @@ python analyze_capture.py
 
 # Analyze specific capture
 python analyze_capture.py captures/capture_1234567890.jpg
+
+# Batch analyze all captures without GUI
+python batch_analyze.py
 ```
 
 ### Controls (count_seeds.py)
@@ -67,6 +80,12 @@ python analyze_capture.py captures/capture_1234567890.jpg
 # Verify camera access
 python test_camera.py
 
+# Test Moondream model installation
+python test_moondream.py
+
+# Test OpenCV counting with sample image
+python test_opencv_count.py
+
 # Manual testing tips:
 # 1. Use DARK background for best results
 # 2. Good lighting is important
@@ -76,13 +95,32 @@ python test_camera.py
 
 ## Architecture & Code Structure
 
+### Three-Tier Architecture
+1. **Unified Entry Point** (`sifter.py`): Interactive menu system for all detection modes
+2. **Real-Time Detection** (`sifter_simple.py`): OpenCV/Watershed for live camera feed
+3. **AI Analysis** (`count_seeds.py`, `analyze_capture.py`): Moondream for accurate counting
+
 ### Core Components
+- **sifter.py**: Unified entry point with interactive menu and command-line arguments
+  - Provides access to all detection modes through single interface
+  - Supports camera, image file, folder, and AI analysis modes
+
 - **sifter_simple.py**: Main application - live camera feed with OpenCV color detection
   - SeedSifter class handles camera, detection algorithm, UI rendering, and capture logic
   - Uses HSV color space for seed type differentiation
   - Real-time performance (~instant detection, no AI model latency)
   - Includes retry logic for camera initialization
   - Threaded analysis to keep UI responsive
+
+- **count_seeds.py**: AI-powered capture and analysis workflow
+  - Captures image from webcam, saves to captures/, then analyzes with Moondream
+  - Separates GUI operations from AI analysis to avoid threading conflicts
+  - Supports both interactive (SPACEBAR) and auto-capture (--auto) modes
+
+- **batch_analyze.py**: Headless batch processing for multiple images
+  - Processes all images in captures/ directory without GUI
+  - Generates annotated versions with bounding boxes
+  - Outputs summary statistics
 
 ### Key Technical Decisions
 1. **Color-Based Detection**: Uses HSV thresholds instead of AI for speed and simplicity
@@ -222,16 +260,22 @@ Initial attempt to integrate Moondream into sifter_simple.py caused segmentation
 - Empty detections → Suggest background/lighting adjustments
 
 ## File Purposes
+- **sifter.py**: Unified entry point with interactive menu
 - **sifter_simple.py**: Main OpenCV-based detection application (active)
 - **sifter_simple_commented.py**: Heavily commented version for learning
+- **count_seeds.py**: AI-powered capture and analysis workflow
+- **analyze_capture.py**: Analyze previously saved captures with Moondream
+- **batch_analyze.py**: Batch process all captures without GUI
 - **test_camera.py**: Camera validation utility
-- **test_moondream.py**: AI model testing (optional alternative approach)
+- **test_moondream.py**: AI model testing
+- **test_opencv_count.py**: OpenCV counting validation
 - **run.sh**: Launcher script with environment setup
-- **requirements.txt**: Minimal dependencies (opencv-python, numpy)
+- **requirements.txt**: Python dependencies
 - **captures/**: Auto-created directory for saved analysis images
 - **sample_seeds.jpg**: Test image for validation
 - **CLAUDE.md**: This file - guidance for Claude Code
-- **codebase_analysis.md**: Comprehensive project analysis
+- **README.md**: User-facing documentation
+- **USAGE.md**: Quick start guide with examples
 
 ## Alternative Implementations
 - **Moondream AI** (test_moondream.py): Slower but more flexible, uses natural language

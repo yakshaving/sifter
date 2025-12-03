@@ -30,22 +30,30 @@ os.makedirs(CAPTURES_DIR, exist_ok=True)
 class SAMSeedSifter:
     """Seed detection using SAM for instance segmentation."""
 
-    def __init__(self, sam_checkpoint=None, model_type="vit_h"):
+    def __init__(self, sam_checkpoint=None, model_type="vit_b"):
         """Initialize SAM model."""
         if not SAM_AVAILABLE:
             raise ImportError("SAM is not installed. Run: pip install segment-anything")
 
         # Try to find SAM checkpoint
         if sam_checkpoint is None:
-            # Common locations for SAM checkpoint
+            # Common locations for SAM checkpoint (check ViT-B first, then ViT-H)
             possible_paths = [
+                "sam_vit_b_01ec64.pth",
                 "sam_vit_h_4b8939.pth",
+                "models/sam_vit_b_01ec64.pth",
                 "models/sam_vit_h_4b8939.pth",
+                os.path.expanduser("~/.cache/sam/sam_vit_b_01ec64.pth"),
                 os.path.expanduser("~/.cache/sam/sam_vit_h_4b8939.pth"),
             ]
             for path in possible_paths:
                 if os.path.exists(path):
                     sam_checkpoint = path
+                    # Auto-detect model type from checkpoint name
+                    if "vit_h" in path:
+                        model_type = "vit_h"
+                    elif "vit_b" in path:
+                        model_type = "vit_b"
                     break
 
         if sam_checkpoint is None or not os.path.exists(sam_checkpoint):
